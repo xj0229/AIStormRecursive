@@ -1,7 +1,5 @@
 package com.xiejun.storm.ai.topology;
 
-import java.util.ArrayList;
-
 import org.apache.storm.Config;
 import org.apache.storm.LocalCluster;
 import org.apache.storm.generated.StormTopology;
@@ -13,36 +11,34 @@ import org.slf4j.LoggerFactory;
 
 import com.xiejun.storm.ai.model.Board;
 import com.xiejun.storm.ai.model.GameState;
-import com.xiejun.storm.ai.operators.GenerateBoards;
+import com.xiejun.storm.ai.operators.ScoreFunction;
+import com.xiejun.storm.ai.operators.ScoreUpdater;
 import com.xiejun.storm.ai.operators.isEndGame;
 import com.xiejun.storm.ai.spout.LocalQueueEmitter;
 import com.xiejun.storm.ai.spout.LocalQueueSpout;
-import com.xiejun.storm.ai.spout.LocalQueuerFunction;
 
-public class RecursiveTopology {
-    private static final Logger LOG = LoggerFactory.getLogger(RecursiveTopology.class);
+public class ScoringTopology {
+    private static final Logger LOG = LoggerFactory.getLogger(ScoringTopology.class);
 
     public static StormTopology buildTopology() {
         LOG.info("Building topology.");
         TridentTopology topology = new TridentTopology();
 
-        // Work Queue / Spout
-        LocalQueueEmitter<GameState> workSpoutEmitter = new LocalQueueEmitter<GameState>("WorkQueue");
-        LocalQueueSpout<GameState> workSpout = new LocalQueueSpout<GameState>(workSpoutEmitter);
-        GameState initialState = new GameState(new Board(), new ArrayList<Board>(), "X");
-        workSpoutEmitter.enqueue(initialState);
+        GameState exampleRecursiveState = GameState.playAtRandom(new Board(), "X");
+        LOG.info("SIMULATED LEAF NODE : [" + exampleRecursiveState.getBoard() + "] w/ state [" + exampleRecursiveState + "]");
 
         // Scoring Queue / Spout
         LocalQueueEmitter<GameState> scoringSpoutEmitter = new LocalQueueEmitter<GameState>("ScoringQueue");
+        scoringSpoutEmitter.enqueue(exampleRecursiveState);
+        LocalQueueSpout<GameState> scoringSpout = new LocalQueueSpout<GameState>(scoringSpoutEmitter);
 
-        Stream inputStream = topology.newStream("gamestate", workSpout);
+        Stream inputStream = topology.newStream("scoring", scoringSpout);
 
         inputStream.each(new Fields("gamestate"), new isEndGame())
-        	.each(new Fields("gamestate"), new LocalQueuerFunction<GameState>(scoringSpoutEmitter), new Fields(""));
-
-        inputStream.each(new Fields("gamestate"), new GenerateBoards(), new Fields("children"))
-        	.each(new Fields("children"), new LocalQueuerFunction<GameState>(workSpoutEmitter), new Fields());
-
+                .each(new Fields("gamestate"),
+                        new ScoreFunction(),
+                        new Fields("board", "score", "player"))
+                .each(new Fields("board", "score", "player"), new ScoreUpdater(), new Fields());
         return topology.build();
     }
 
@@ -51,7 +47,7 @@ public class RecursiveTopology {
         final LocalCluster cluster = new LocalCluster();
 
         LOG.info("Submitting topology.");
-        cluster.submitTopology("recursiveTopology", conf, RecursiveTopology.buildTopology());
+        cluster.submitTopology("scoringTopology", conf, ScoringTopology.buildTopology());
         LOG.info("Topology submitted.");
         Thread.sleep(600000);
     }
