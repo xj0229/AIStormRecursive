@@ -17,7 +17,7 @@ public class GameStateTest {
         Board child = boards.get(0);
         Board grandChild = child.nextBoards("O").get(0);
         List<Board> parents = new ArrayList<Board>();
-        parents.add(child)
+        parents.add(child);
         parents.add(board);
         GameState gameState = new GameState(grandChild, parents, "X");
         LOG.debug(gameState.toString());
